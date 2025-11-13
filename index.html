@@ -12,13 +12,13 @@
 
   <header class="text-center mb-4">
     <h1 class="text-2xl font-bold mb-1">💳 信用卡花費 Data Board</h1>
-    <p class="text-gray-600 text-sm">上傳 CSV 或 JSON 以更新圖表</p>
+    <p class="text-gray-600 text-sm">資料來源：data.csv</p>
   </header>
 
-  <!-- 上傳區 -->
-  <div class="flex flex-col sm:flex-row items-center gap-2 mb-4">
-    <input id="fileInput" type="file" accept=".csv,.json" class="border border-gray-300 p-2 rounded" />
-    <button id="loadSample" class="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600">載入範例資料</button>
+  <!-- 分析區（移到最上方） -->
+  <div id="analysisBox" class="w-full max-w-4xl bg-white shadow rounded-lg p-4 mb-8">
+    <h2 class="font-semibold mb-2 text-center">🔎 今年消費分析</h2>
+    <div id="analysisContent" class="space-y-2 text-gray-800 text-base"></div>
   </div>
 
   <!-- 提示區 -->
@@ -47,10 +47,8 @@
   <script>
     let data = [];
 
-    const fileInput = document.getElementById("fileInput");
     const alertBox = document.getElementById("alertBox");
     const alertText = document.getElementById("alertText");
-    const loadSample = document.getElementById("loadSample");
 
     const barCtx = document.getElementById("barChart").getContext("2d");
     const lineCtx = document.getElementById("lineChart").getContext("2d");
@@ -99,9 +97,15 @@
         options: { responsive: true }
       });
 
-      // 圓餅圖 (最後一個月)
-      const latest = data[data.length - 1];
-      const pieData = cards.map(c => parseValue(latest[c]));
+      // 圓餅圖 (最後一個有消費的月份)
+      let latest = null;
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (parseValue(data[i].Total) > 0) {
+          latest = data[i];
+          break;
+        }
+      }
+      const pieData = cards.map(c => parseValue(latest ? latest[c] : 0));
       if (pieChart) pieChart.destroy();
       pieChart = new Chart(pieCtx, {
         type: "pie",
@@ -130,58 +134,70 @@
         alertBox.classList.remove("bg-red-100", "border-red-500", "text-red-700");
         alertText.textContent = `✅ 國泰1015 (${current.toLocaleString()}) 尚未超過平均 (${avg.toFixed(0).toLocaleString()})`;
       }
+
+      renderAnalysis();
     }
 
-    function loadCSV(file) {
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: function(results) {
-          data = results.data;
-          drawCharts();
-        }
+    function renderAnalysis() {
+      const analysisContent = document.getElementById("analysisContent");
+      if (!data || data.length === 0) {
+        analysisContent.innerHTML = "";
+        return;
+      }
+      const cards = Object.keys(data[0]).filter(k => !["Year", "Month", "Moth_text", "Total"].includes(k));
+      // 各卡累積消費
+      const cardTotals = cards.map(card => ({
+        card,
+        total: data.reduce((sum, d) => sum + parseValue(d[card]), 0)
+      }));
+      // 今年總消費
+      const totalSum = data.reduce((sum, d) => sum + parseValue(d.Total), 0);
+      // 消費最多的月份
+      const maxMonth = data.reduce((max, d) => parseValue(d.Total) > max.val ? {val: parseValue(d.Total), month: d.Month} : max, {val: 0, month: ''});
+      // 各卡消費最高的月份
+      const cardMaxMonths = cards.map(card => {
+        let max = {val: 0, month: ''};
+        data.forEach(d => {
+          const v = parseValue(d[card]);
+          if (v > max.val) max = {val: v, month: d.Month};
+        });
+        return {card, ...max};
       });
-    }
-
-    function loadJSON(file) {
-      const reader = new FileReader();
-      reader.onload = e => {
-        data = JSON.parse(e.target.result);
-        drawCharts();
-      };
-      reader.readAsText(file);
-    }
-
-    fileInput.addEventListener("change", e => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const ext = file.name.split(".").pop().toLowerCase();
-      if (ext === "csv") loadCSV(file);
-      else if (ext === "json") loadJSON(file);
-      else alert("請上傳 CSV 或 JSON 檔案");
-    });
-
-    loadSample.addEventListener("click", () => {
-      const sampleCSV = `Year,Month,Moth_text,台新,國泰5518,國泰1015,中國信託,兆豐,玉山,Total
-2025,2025/01,2025/01,$1711,$1980,$22451,$0,$11931,$5205,$43278
-2025,2025/02,2025/02,$1970,$4059,$17885,$6000,$5940,$5783,$41637
-2025,2025/03,2025/03,$2350,$392,$21699,$6808,$6308,$1848,$39405
-2025,2025/04,2025/04,$2005,$4690,$27535,$3000,$14906,$6528,$58664
-2025,2025/05,2025/05,$3516,$2973,$18612,$3000,$2132,$0,$30233
-2025,2025/06,2025/06,$10492,$4805,$24373,$0,$5226,$9219,$54115
-2025,2025/07,2025/07,$15305,$3437,$32587,$3000,$6617,$35699,$96645
-2025,2025/08,2025/08,$1405,$1801,$27292,$3000,$68065,$15270,$116833
-2025,2025/09,2025/09,$0,$308,$32345,$3000,$3353,$27953,$66959
-2025,2025/10,2025/10,$0,$2446,$16959,$11998,$4531,$0,$35934
-2025,2025/11,2025/11,$0,$1812,$32620,$0,$0,$0,$34432`;
-      Papa.parse(sampleCSV, {
-        header: true,
-        complete: function(results) {
-          data = results.data;
-          drawCharts();
-        }
+      let html = '';
+      html += `<div>今年總消費金額：<span class='font-bold text-blue-700'>${totalSum.toLocaleString()}</span> 元</div>`;
+      html += `<div>消費最多的月份：<span class='font-bold text-red-700'>${maxMonth.month}</span>，金額 <span class='font-bold'>${maxMonth.val.toLocaleString()}</span> 元</div>`;
+      html += `<div>各卡累積消費：</div><ul class='list-disc pl-6'>`;
+      cardTotals.forEach(c => {
+        html += `<li>${c.card}：<span class='font-bold'>${c.total.toLocaleString()}</span> 元</li>`;
       });
-    });
+      html += `</ul>`;
+      html += `<div>各卡消費最高月份：</div><ul class='list-disc pl-6'>`;
+      cardMaxMonths.forEach(c => {
+        html += `<li>${c.card}：<span class='font-bold text-red-700'>${c.month}</span>，金額 <span class='font-bold'>${c.val.toLocaleString()}</span> 元</li>`;
+      });
+      html += `</ul>`;
+      analysisContent.innerHTML = html;
+    }
+
+    // 直接讀取 data.csv 並解析
+    fetch('data.csv')
+      .then(response => response.text())
+      .then(csvText => {
+        Papa.parse(csvText, {
+          header: true,
+          skipEmptyLines: true,
+          complete: function(results) {
+            // 只保留已過去的月份
+            const now = new Date();
+            const currentYearMonth = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2, '0')}`;
+            data = results.data.filter(d => {
+              // Month 格式如 2025/11
+              return d.Month && d.Month <= currentYearMonth;
+            });
+            drawCharts();
+          }
+        });
+      });
   </script>
 </body>
 </html>
