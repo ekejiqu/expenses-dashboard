@@ -128,11 +128,24 @@
       if (current > avg) {
         alertBox.classList.remove("hidden");
         alertBox.classList.add("bg-red-100", "border-red-500", "text-red-700");
-        alertText.textContent = `⚠️ 國泰1015 (${current.toLocaleString()}) 已超過今年平均 (${avg.toFixed(0).toLocaleString()})`;
+        // 找出所有超過平均的月份
+        const overAvgArr = data.filter(d => parseValue(d[targetCard]) > avg)
+          .map(d => ({ month: d.Month, value: parseValue(d[targetCard]) }))
+          .filter(d => d.value > 0);
+        // 最新月份獨立顯示，超過平均的月份排除最新月份
+        const latestMonth = latest.Month;
+        const latestValue = current;
+        const otherOverAvg = overAvgArr.filter(d => d.month !== latestMonth);
+        let overAvgHtml = `<div>超過平均的月份：</div><div class='space-y-1'>`;
+        otherOverAvg.forEach(d => {
+          overAvgHtml += `<div class='flex'><span class='w-24'>${d.month}：</span><span class='ml-2 font-bold text-red-700'>${d.value.toLocaleString()} 元</span></div>`;
+        });
+        overAvgHtml += `</div>`;
+        alertText.innerHTML = `⚠️ 國泰1015 <span class='font-bold'>${latestMonth}：${latestValue.toLocaleString()} 元</span> <br>已超過今年平均 <span class='font-bold'>${avg.toFixed(0).toLocaleString()} 元</span>。<br>${overAvgHtml}`;
       } else {
         alertBox.classList.remove("hidden");
         alertBox.classList.remove("bg-red-100", "border-red-500", "text-red-700");
-        alertText.textContent = `✅ 國泰1015 (${current.toLocaleString()}) 尚未超過平均 (${avg.toFixed(0).toLocaleString()})`;
+        alertText.textContent = `✅ 國泰1015 (${latest.Month}：${current.toLocaleString()}) 尚未超過平均 (${avg.toFixed(0).toLocaleString()})`;
       }
 
       renderAnalysis();
