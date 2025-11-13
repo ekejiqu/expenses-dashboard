@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>信用卡花費 Data Board</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen flex flex-col items-center p-4">
+
+  <header class="text-center mb-4">
+    <h1 class="text-2xl font-bold mb-1">💳 信用卡花費 Data Board</h1>
+    <p class="text-gray-600 text-sm">上傳 CSV 或 JSON 以更新圖表</p>
+  </header>
+
+  <!-- 上傳區 -->
+  <div class="flex flex-col sm:flex-row items-center gap-2 mb-4">
+    <input id="fileInput" type="file" accept=".csv,.json" class="border border-gray-300 p-2 rounded" />
+    <button id="loadSample" class="bg-blue-500 text-white px-3 py-2 rounded hover:bg-blue-600">載入範例資料</button>
+  </div>
+
+  <!-- 提示區 -->
+  <div id="alertBox" class="hidden w-full max-w-md bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-3 mb-4 rounded">
+    <p id="alertText" class="text-center font-medium"></p>
+  </div>
+
+  <!-- 圖表容器 -->
+  <div class="w-full max-w-4xl space-y-8">
+    <div class="bg-white shadow rounded-lg p-4">
+      <h2 class="font-semibold mb-2 text-center">📈 每月各卡消費 (長條圖)</h2>
+      <canvas id="barChart"></canvas>
+    </div>
+
+    <div class="bg-white shadow rounded-lg p-4">
+      <h2 class="font-semibold mb-2 text-center">📊 每月總花費 (折線圖)</h2>
+      <canvas id="lineChart"></canvas>
+    </div>
+
+    <div class="bg-white shadow rounded-lg p-4">
+      <h2 class="font-semibold mb-2 text-center">🧩 各卡占比 (圓餅圖)</h2>
+      <canvas id="pieChart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    let data = [];
+
+    const fileInput = document.getElementById("fileInput");
+    const alertBox = document.getElementById("alertBox");
+    const alertText = document.getElementById("alertText");
+    const loadSample = document.getElementById("loadSample");
+
+    const barCtx = document.getElementById("barChart").getContext("2d");
+    const lineCtx = document.getElementById("lineChart").getContext("2d");
+    const pieCtx = document.getElementById("pieChart").getContext("2d");
+
+    let barChart, lineChart, pieChart;
+
+    function parseValue(v) {
+      return Number(String(v).replace(/[$,]/g, "")) || 0;
+    }
+
+    function drawCharts() {
+      if (!data || data.length === 0) return;
+
+      const months = data.map(d => d.Month);
+      const cards = Object.keys(data[0]).filter(k => !["Year", "Month", "Moth_text", "Total"].includes(k));
+
+      const datasets = cards.map((card, i) => ({
+        label: card,
+        data: data.map(d => parseValue(d[card])),
+        backgroundColor: `hsl(${i * 60}, 70%, 60%)`
+      }));
+
+      // 長條圖
+      if (barChart) barChart.destroy();
+      barChart = new Chart(barCtx, {
+        type: "bar",
+        data: { labels: months, datasets },
+        options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+      });
+
+      // 折線圖
+      if (lineChart) lineChart.destroy();
+      lineChart = new Chart(lineCtx, {
+        type: "line",
+        data: {
+          labels: months,
+          datasets: [{
+            label: "總花費",
+            data: data.map(d => parseValue(d.Total)),
+            borderColor: "#2563eb",
+            fill: false,
+            tension: 0.2
+          }]
+        },
+        options: { responsive: true }
+      });
+
+      // 圓餅圖 (最後一個月)
+      const latest = data[data.length - 1];
+      const pieData = cards.map(c => parseValue(latest[c]));
+      if (pieChart) pieChart.destroy();
+      pieChart = new Chart(pieCtx, {
+        type: "pie",
+        data: {
+          labels: cards,
+          datasets: [{
+            data: pieData,
+            backgroundColor: cards.map((c, i) => `hsl(${i * 60}, 70%, 60%)`)
+          }]
+        },
+        options: { responsive: true }
+      });
+
+      // 國泰1015平均提示
+      const targetCard = "國泰1015";
+      const values = data.map(d => parseValue(d[targetCard])).filter(v => v > 0);
+      const avg = values.reduce((a, b) => a + b, 0) / values.length;
+      const current = parseValue(latest[targetCard]);
+
+      if (current > avg) {
+        alertBox.classList.remove("hidden");
+        alertBox.classList.add("bg-red-100", "border-red-500", "text-red-700");
+        alertText.textContent = `⚠️ 國泰1015 (${current.toLocaleString()}) 已超過今年平均 (${avg.toFixed(0).toLocaleString()})`;
+      } else {
+        alertBox.classList.remove("hidden");
+        alertBox.classList.remove("bg-red-100", "border-red-500", "text-red-700");
+        alertText.textContent = `✅ 國泰1015 (${current.toLocaleString()}) 尚未超過平均 (${avg.toFixed(0).toLocaleString()})`;
+      }
+    }
+
+    function loadCSV(file) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          data = results.data;
+          drawCharts();
+        }
+      });
+    }
+
+    function loadJSON(file) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        data = JSON.parse(e.target.result);
+        drawCharts();
+      };
+      reader.readAsText(file);
+    }
+
+    fileInput.addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const ext = file.name.split(".").pop().toLowerCase();
+      if (ext === "csv") loadCSV(file);
+      else if (ext === "json") loadJSON(file);
+      else alert("請上傳 CSV 或 JSON 檔案");
+    });
+
+    loadSample.addEventListener("click", () => {
+      const sampleCSV = `Year,Month,Moth_text,台新,國泰5518,國泰1015,中國信託,兆豐,玉山,Total
+2025,2025/01,2025/01,$1711,$1980,$22451,$0,$11931,$5205,$43278
+2025,2025/02,2025/02,$1970,$4059,$17885,$6000,$5940,$5783,$41637
+2025,2025/03,2025/03,$2350,$392,$21699,$6808,$6308,$1848,$39405
+2025,2025/04,2025/04,$2005,$4690,$27535,$3000,$14906,$6528,$58664
+2025,2025/05,2025/05,$3516,$2973,$18612,$3000,$2132,$0,$30233
+2025,2025/06,2025/06,$10492,$4805,$24373,$0,$5226,$9219,$54115
+2025,2025/07,2025/07,$15305,$3437,$32587,$3000,$6617,$35699,$96645
+2025,2025/08,2025/08,$1405,$1801,$27292,$3000,$68065,$15270,$116833
+2025,2025/09,2025/09,$0,$308,$32345,$3000,$3353,$27953,$66959
+2025,2025/10,2025/10,$0,$2446,$16959,$11998,$4531,$0,$35934
+2025,2025/11,2025/11,$0,$1812,$32620,$0,$0,$0,$34432`;
+      Papa.parse(sampleCSV, {
+        header: true,
+        complete: function(results) {
+          data = results.data;
+          drawCharts();
+        }
+      });
+    });
+  </script>
+</body>
+</html>
